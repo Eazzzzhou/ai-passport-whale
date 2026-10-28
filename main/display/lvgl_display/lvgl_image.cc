@@ -9,12 +9,22 @@
 
 LvglRawImage::LvglRawImage(void* data, size_t size) {
     bzero(&image_dsc_, sizeof(image_dsc_));
-    image_dsc_.data_size = size;
-    image_dsc_.data = static_cast<uint8_t*>(data);
-    image_dsc_.header.magic = LV_IMAGE_HEADER_MAGIC;
-    image_dsc_.header.cf = LV_COLOR_FORMAT_RAW_ALPHA;
-    image_dsc_.header.w = 0;
-    image_dsc_.header.h = 0;
+    auto* bytes = static_cast<uint8_t*>(data);
+    if (bytes != nullptr && size > sizeof(lv_image_header_t) &&
+        bytes[0] == LV_IMAGE_HEADER_MAGIC) {
+        // LVGL BIN (12-byte header + pixels): point at the flash-mapped payload
+        // instead of letting the decoder treat the header as raw alpha data.
+        memcpy(&image_dsc_.header, bytes, sizeof(lv_image_header_t));
+        image_dsc_.data = bytes + sizeof(lv_image_header_t);
+        image_dsc_.data_size = size - sizeof(lv_image_header_t);
+    } else {
+        image_dsc_.data_size = size;
+        image_dsc_.data = bytes;
+        image_dsc_.header.magic = LV_IMAGE_HEADER_MAGIC;
+        image_dsc_.header.cf = LV_COLOR_FORMAT_RAW_ALPHA;
+        image_dsc_.header.w = 0;
+        image_dsc_.header.h = 0;
+    }
 }
 
 bool LvglRawImage::IsGif() const {

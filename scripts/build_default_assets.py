@@ -284,7 +284,7 @@ def process_emoji_collection(emoji_collection_dir, assets_dir):
     # Copy each image from input directory to build/assets directory
     for root, dirs, files in os.walk(emoji_collection_dir):
         for file in files:
-            if file.lower().endswith(('.png', '.gif')):
+            if file.lower().endswith(('.png', '.gif', '.bin')):
                 # Copy file
                 src_file = os.path.join(root, file)
                 dst_file = os.path.join(assets_dir, file)
@@ -856,7 +856,12 @@ def get_emoji_collection_path(default_emoji_collection, noto_fonts_path, project
     """
     if not default_emoji_collection:
         return None
-    
+
+    # A project-local directory wins over the noto font lookups, so boards can
+    # ship their own LVGL BIN/PNG/GIF emoji set.
+    if os.path.isdir(default_emoji_collection):
+        return default_emoji_collection
+
     # Special handling for otto-gif collection
     if default_emoji_collection == 'otto-gif':
         if project_root:
