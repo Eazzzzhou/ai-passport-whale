@@ -267,6 +267,9 @@ private:
     // does; the generation check in each transition is what drops them, and this
     // deadline is the second line of defence for the same window.
     int64_t last_key_us_ = 0;
+    // Timestamp of an OK press-down that stopped playback. The click that follows
+    // the release must not start a new turn on top of the abort.
+    int64_t ok_abort_us_ = 0;
 
     // Guards the stage transitions against a key press that arrived while they
     // were queued: the re-arm has already forgiven that press, but the wake
@@ -460,6 +463,12 @@ private:
         auto ok = adc_button_[kAdcButtonOk];
         ok->OnClick([this]() {
             if (KeyEventsBlocked()) return;
+            // The press-down that stopped playback already did the work; the
+            // click arriving on release must not open a new turn.
+            if (ok_abort_us_ != 0 && esp_timer_get_time() - ok_abort_us_ < 1000000) {
+                ok_abort_us_ = 0;
+                return;
+            }
             Application::GetInstance().Schedule([this]() {
                 // Opening the audio channel with the network down would only
                 // raise an error alert, so show the ordinary "connecting" hint
@@ -478,7 +487,7 @@ private:
         // held for a long press also wakes the screen and the CPU immediately.
         // Press-down itself is never blocked: it is what wakes the device.
         for (auto* button : adc_button_) {
-            button->OnPressDown([this]() {
+            button->OnPressDown([this, button]() {
                 last_key_us_ = esp_timer_get_time();
                 // The press that brings the device out of soft sleep is dropped as
                 // a whole, long press included.
@@ -489,6 +498,18 @@ private:
                 // already visible to the wake handler it schedules.
                 RearmIdleStages();
                 WakeUpPowerSaveTimer();
+
+                // OK is the stop key: pressing it while the device is speaking
+                // aborts the reply on press-down rather than waiting for the click
+                // that only lands on release. Stopping must also work while the
+                // link is down, so this path does not consult the network.
+                if (button == adc_button_[kAdcButtonOk] &&
+                    Application::GetInstance().GetDeviceState() == kDeviceStateSpeaking) {
+                    ok_abort_us_ = esp_timer_get_time();
+                    Application::GetInstance().Schedule([]() {
+                        Application::GetInstance().AbortSpeaking(kAbortReasonNone);
+                    });
+                }
             });
             // Not released on press-up: the click that belongs to the wake press is
             // graded a tick after it, so the guard has to outlive the release and
