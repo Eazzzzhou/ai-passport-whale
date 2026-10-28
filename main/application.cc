@@ -688,6 +688,10 @@ void Application::InitializeProtocol() {
                 ESP_LOGI(TAG, ">> %s", text->valuestring);
                 Schedule([display, message = std::string(text->valuestring),
                           glyphs = std::move(glyphs), bpp]() {
+                    // The turn has been recognised; the pending LLM + TTS work is
+                    // what the user is waiting on. Without this the screen keeps
+                    // showing "listening" until the first audio packet arrives.
+                    display->SetStatus(Lang::Strings::THINKING);
                     display->AddTextGlyphs(glyphs, bpp);
                     display->SetChatMessage("user", message.c_str());
                 });
