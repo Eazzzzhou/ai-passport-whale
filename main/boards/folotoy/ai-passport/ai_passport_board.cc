@@ -249,15 +249,12 @@ private:
     // The timer only counts; the LVGL calls are scheduled on the main task.
     static constexpr int kArtTickMs = 250;
     static constexpr int kArtIdleTicks = 40;   // 10 s of quiet
-    static constexpr int kArtHoldTicks = 20;   // 5 s of a still image
-    static constexpr int kArtAnimFrames = 4;   // bob1..bob4
-    static constexpr int kArtCount = 7;        // art01..art07
+    static constexpr int kArtAnimFrames = 6;   // eye1..6 / yawn1..6
     esp_timer_handle_t art_timer_ = nullptr;
     std::atomic<int> art_idle_ticks_{0};
-    std::atomic<int> art_hold_ticks_{0};
     std::atomic<int> art_frame_{0};
     std::atomic<bool> art_showing_{false};
-    std::atomic<bool> art_anim_{false};
+    std::string art_prefix_;
     // Bumped by every re-arm. A transition queued for the main task carries the
     // generation it was requested in, so a key press that lands in between drops
     // it instead of letting the device sleep on a stale request.
@@ -769,45 +766,27 @@ private:
                            state == kDeviceStateWifiConfiguring || state == kDeviceStateActivating;
         if (!quiet) {
             art_idle_ticks_.store(0);
-            art_hold_ticks_.store(0);
             if (art_showing_.exchange(false)) {
                 ShowArtEmotion("neutral");
             }
             return;
         }
         if (art_showing_.load()) {
-            if (art_anim_.load()) {
-                const int frame = ++art_frame_;
-                if (frame >= kArtAnimFrames) {
-                    art_showing_.store(false);
-                    art_anim_.store(false);
-                    ShowArtEmotion("neutral");
-                } else {
-                    char name[16];
-                    std::snprintf(name, sizeof(name), "bob%d", frame + 1);
-                    ShowArtEmotion(name);
-                }
-            } else if (++art_hold_ticks_ >= kArtHoldTicks) {
+            const int frame = ++art_frame_;
+            if (frame >= kArtAnimFrames) {
                 art_showing_.store(false);
                 ShowArtEmotion("neutral");
+            } else {
+                ShowArtEmotion(art_prefix_ + std::to_string(frame + 1));
             }
             return;
         }
         if (++art_idle_ticks_ >= kArtIdleTicks) {
             art_idle_ticks_.store(0);
-            art_hold_ticks_.store(0);
             art_frame_.store(0);
             art_showing_.store(true);
-            if (esp_random() % 2 == 0) {
-                art_anim_.store(true);
-                ShowArtEmotion("bob1");
-            } else {
-                art_anim_.store(false);
-                char name[16];
-                std::snprintf(name, sizeof(name), "art%02d",
-                              static_cast<int>(esp_random() % kArtCount) + 1);
-                ShowArtEmotion(name);
-            }
+            art_prefix_ = (esp_random() % 2 == 0) ? "eye" : "yawn";
+            ShowArtEmotion(art_prefix_ + "1");
         }
     }
 
