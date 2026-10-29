@@ -758,6 +758,11 @@ private:
 
     void OnArtTick() {
         auto& app = Application::GetInstance();
+        static int dbg = 0;
+        if (++dbg % 10 == 0) {
+            ESP_LOGI(TAG, "art tick: state=%d idle=%d showing=%d", (int)app.GetDeviceState(),
+                     art_idle_seconds_.load(), (int)art_showing_.load());
+        }
         if (app.GetDeviceState() != kDeviceStateIdle) {
             art_idle_seconds_.store(0);
             art_visible_seconds_.store(0);
