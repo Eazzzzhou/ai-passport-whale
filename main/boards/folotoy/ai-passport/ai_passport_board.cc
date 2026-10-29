@@ -248,8 +248,8 @@ private:
     // Random art between turns: 30 s idle -> one art asset for 6 s -> neutral.
     // The timer only counts; the LVGL calls are scheduled on the main task.
     static constexpr int kArtTickMs = 250;
-    static constexpr int kArtIdleTicks = 40;   // 10 s of quiet
-    static constexpr int kArtAnimFrames = 6;   // eye1..6 / yawn1..6
+    static constexpr int kArtIdleTicks = 8;    // 2 s of quiet
+    static constexpr int kArtAnimFrames = 4;   // eye/yawn/mutter/doze 1..4
     esp_timer_handle_t art_timer_ = nullptr;
     std::atomic<int> art_idle_ticks_{0};
     std::atomic<int> art_frame_{0};
@@ -785,7 +785,8 @@ private:
             art_idle_ticks_.store(0);
             art_frame_.store(0);
             art_showing_.store(true);
-            art_prefix_ = (esp_random() % 2 == 0) ? "eye" : "yawn";
+            static const char* const kPrefixes[] = {"eye", "yawn", "mutter", "doze"};
+            art_prefix_ = kPrefixes[esp_random() % (sizeof(kPrefixes) / sizeof(kPrefixes[0]))];
             ShowArtEmotion(art_prefix_ + "1");
         }
     }
