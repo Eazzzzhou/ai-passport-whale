@@ -9,8 +9,11 @@
 #include "power_save_timer.h"
 
 #include <atomic>
+#include <cstdio>
+#include <string>
 
 #include <esp_log.h>
+#include <esp_random.h>
 #include <esp_lcd_panel_vendor.h>
 #include <esp_lcd_panel_ops.h>
 #include <esp_pm.h>
@@ -242,6 +245,15 @@ private:
     // requests the transitions; the activity checks and every panel, codec or PM
     // action stay on the main task.
     esp_timer_handle_t idle_timer_ = nullptr;
+    // Random art between turns: 30 s idle -> one art asset for 6 s -> neutral.
+    // The timer only counts; the LVGL calls are scheduled on the main task.
+    static constexpr int kArtIdleSeconds = 30;
+    static constexpr int kArtVisibleSeconds = 6;
+    static constexpr int kArtCount = 7;
+    esp_timer_handle_t art_timer_ = nullptr;
+    std::atomic<int> art_idle_seconds_{0};
+    std::atomic<int> art_visible_seconds_{0};
+    std::atomic<bool> art_showing_{false};
     // Bumped by every re-arm. A transition queued for the main task carries the
     // generation it was requested in, so a key press that lands in between drops
     // it instead of letting the device sleep on a stale request.
@@ -723,6 +735,56 @@ private:
         ESP_LOGI(TAG, "Deep-sleep pin holds released");
     }
 
+    void InitializeArtTimer() {
+        esp_timer_create_args_t art_args = {
+            .callback = [](void* arg) { static_cast<AiPassportBoard*>(arg)->OnArtTick(); },
+            .arg = this,
+            .dispatch_method = ESP_TIMER_TASK,
+            .name = "art_tick",
+            .skip_unhandled_events = true,
+        };
+        ESP_ERROR_CHECK(esp_timer_create(&art_args, &art_timer_));
+        ESP_ERROR_CHECK(esp_timer_start_periodic(art_timer_, 1000000));
+    }
+
+    void ShowArtEmotion(const std::string& name) {
+        Application::GetInstance().Schedule([this, name]() {
+            auto* display = GetDisplay();
+            if (display != nullptr) {
+                display->SetEmotion(name.c_str());
+            }
+        });
+    }
+
+    void OnArtTick() {
+        auto& app = Application::GetInstance();
+        if (app.GetDeviceState() != kDeviceStateIdle) {
+            art_idle_seconds_.store(0);
+            art_visible_seconds_.store(0);
+            if (art_showing_.exchange(false)) {
+                ShowArtEmotion("neutral");
+            }
+            return;
+        }
+        if (art_showing_.load()) {
+            if (++art_visible_seconds_ >= kArtVisibleSeconds) {
+                art_visible_seconds_.store(0);
+                art_showing_.store(false);
+                ShowArtEmotion("neutral");
+            }
+            return;
+        }
+        if (++art_idle_seconds_ >= kArtIdleSeconds) {
+            art_idle_seconds_.store(0);
+            art_visible_seconds_.store(0);
+            art_showing_.store(true);
+            char name[16];
+            std::snprintf(name, sizeof(name), "art%02d",
+                          static_cast<int>(esp_random() % kArtCount) + 1);
+            ShowArtEmotion(name);
+        }
+    }
+
     void InitializePowerSaveTimer() {
         // cpu_max_freq = -1 keeps PowerSaveTimer out of the wake-word and PM
         // logic: both belong to the soft-sleep stage below, and PowerSaveTimer
@@ -1153,6 +1215,7 @@ public:
         InitializeButtons();
         GetBacklight()->RestoreBrightness();
         InitializePowerSaveTimer();
+        InitializeArtTimer();
     }
 
     virtual AudioCodec* GetAudioCodec() override {
