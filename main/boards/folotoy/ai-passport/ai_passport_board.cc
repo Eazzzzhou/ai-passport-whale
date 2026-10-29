@@ -247,8 +247,8 @@ private:
     esp_timer_handle_t idle_timer_ = nullptr;
     // Random art between turns: 30 s idle -> one art asset for 6 s -> neutral.
     // The timer only counts; the LVGL calls are scheduled on the main task.
-    static constexpr int kArtIdleSeconds = 30;
-    static constexpr int kArtVisibleSeconds = 6;
+    static constexpr int kArtIdleSeconds = 10;
+    static constexpr int kArtVisibleSeconds = 5;
     static constexpr int kArtCount = 7;
     esp_timer_handle_t art_timer_ = nullptr;
     std::atomic<int> art_idle_seconds_{0};
