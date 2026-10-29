@@ -247,13 +247,17 @@ private:
     esp_timer_handle_t idle_timer_ = nullptr;
     // Random art between turns: 30 s idle -> one art asset for 6 s -> neutral.
     // The timer only counts; the LVGL calls are scheduled on the main task.
-    static constexpr int kArtIdleSeconds = 10;
-    static constexpr int kArtVisibleSeconds = 5;
-    static constexpr int kArtCount = 7;
+    static constexpr int kArtTickMs = 250;
+    static constexpr int kArtIdleTicks = 40;   // 10 s of quiet
+    static constexpr int kArtHoldTicks = 20;   // 5 s of a still image
+    static constexpr int kArtAnimFrames = 4;   // bob1..bob4
+    static constexpr int kArtCount = 7;        // art01..art07
     esp_timer_handle_t art_timer_ = nullptr;
-    std::atomic<int> art_idle_seconds_{0};
-    std::atomic<int> art_visible_seconds_{0};
+    std::atomic<int> art_idle_ticks_{0};
+    std::atomic<int> art_hold_ticks_{0};
+    std::atomic<int> art_frame_{0};
     std::atomic<bool> art_showing_{false};
+    std::atomic<bool> art_anim_{false};
     // Bumped by every re-arm. A transition queued for the main task carries the
     // generation it was requested in, so a key press that lands in between drops
     // it instead of letting the device sleep on a stale request.
@@ -744,7 +748,7 @@ private:
             .skip_unhandled_events = true,
         };
         ESP_ERROR_CHECK(esp_timer_create(&art_args, &art_timer_));
-        ESP_ERROR_CHECK(esp_timer_start_periodic(art_timer_, 1000000));
+        ESP_ERROR_CHECK(esp_timer_start_periodic(art_timer_, kArtTickMs * 1000));
     }
 
     void ShowArtEmotion(const std::string& name) {
@@ -758,35 +762,52 @@ private:
 
     void OnArtTick() {
         auto& app = Application::GetInstance();
-        static int dbg = 0;
-        if (++dbg % 10 == 0) {
-            ESP_LOGI(TAG, "art tick: state=%d idle=%d showing=%d", (int)app.GetDeviceState(),
-                     art_idle_seconds_.load(), (int)art_showing_.load());
-        }
-        if (app.GetDeviceState() != kDeviceStateIdle) {
-            art_idle_seconds_.store(0);
-            art_visible_seconds_.store(0);
+        const DeviceState state = app.GetDeviceState();
+        // "Quiet" covers boot, provisioning and idle: the badge should not sit
+        // on a blank face while it waits for Wi-Fi either.
+        const bool quiet = state == kDeviceStateIdle || state == kDeviceStateStarting ||
+                           state == kDeviceStateWifiConfiguring || state == kDeviceStateActivating;
+        if (!quiet) {
+            art_idle_ticks_.store(0);
+            art_hold_ticks_.store(0);
             if (art_showing_.exchange(false)) {
                 ShowArtEmotion("neutral");
             }
             return;
         }
         if (art_showing_.load()) {
-            if (++art_visible_seconds_ >= kArtVisibleSeconds) {
-                art_visible_seconds_.store(0);
+            if (art_anim_.load()) {
+                const int frame = ++art_frame_;
+                if (frame >= kArtAnimFrames) {
+                    art_showing_.store(false);
+                    art_anim_.store(false);
+                    ShowArtEmotion("neutral");
+                } else {
+                    char name[8];
+                    std::snprintf(name, sizeof(name), "bob%d", frame + 1);
+                    ShowArtEmotion(name);
+                }
+            } else if (++art_hold_ticks_ >= kArtHoldTicks) {
                 art_showing_.store(false);
                 ShowArtEmotion("neutral");
             }
             return;
         }
-        if (++art_idle_seconds_ >= kArtIdleSeconds) {
-            art_idle_seconds_.store(0);
-            art_visible_seconds_.store(0);
+        if (++art_idle_ticks_ >= kArtIdleTicks) {
+            art_idle_ticks_.store(0);
+            art_hold_ticks_.store(0);
+            art_frame_.store(0);
             art_showing_.store(true);
-            char name[16];
-            std::snprintf(name, sizeof(name), "art%02d",
-                          static_cast<int>(esp_random() % kArtCount) + 1);
-            ShowArtEmotion(name);
+            if (esp_random() % 2 == 0) {
+                art_anim_.store(true);
+                ShowArtEmotion("bob1");
+            } else {
+                art_anim_.store(false);
+                char name[16];
+                std::snprintf(name, sizeof(name), "art%02d",
+                              static_cast<int>(esp_random() % kArtCount) + 1);
+                ShowArtEmotion(name);
+            }
         }
     }
 
