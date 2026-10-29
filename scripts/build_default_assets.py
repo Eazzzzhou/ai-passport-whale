@@ -384,7 +384,7 @@ def generate_config_json(build_dir, assets_dir):
         "assets_path": assets_dir,
         "image_file": os.path.join(build_dir, "output", "assets.bin"),
         "lvgl_ver": "9.3.0",
-        "assets_size": "0x400000",
+        "assets_size": "0x500000",
         "support_format": ".png, .gif, .jpg, .bin, .json",
         "name_length": "32",
         "split_height": "0",
