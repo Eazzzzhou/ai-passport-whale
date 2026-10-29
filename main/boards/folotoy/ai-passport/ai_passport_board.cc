@@ -783,7 +783,7 @@ private:
                     art_anim_.store(false);
                     ShowArtEmotion("neutral");
                 } else {
-                    char name[8];
+                    char name[16];
                     std::snprintf(name, sizeof(name), "bob%d", frame + 1);
                     ShowArtEmotion(name);
                 }
